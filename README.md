@@ -20,7 +20,7 @@ To use the RichPresence library, follow these steps:
    ```
 
 ## Usage
-Here's a simple example of how to use the RichPresence library:
+Here's a simple example of how to use the RichPresence "library":
 
 ```javascript
 import { RichPresence } from "./RichPresence.js" // or const { RichPresence } = require("RichPresence.js")
@@ -38,6 +38,10 @@ rich.connect().then(() => {
           type: 0, // playing
           details: 'Working on a project',
           state: 'In the zone',
+          party: {
+            size: [2, 4],
+            id: 'party123',
+          },
           timestamps: {
             start: Date.now() / 1000,
           },

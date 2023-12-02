@@ -456,6 +456,7 @@ class RichPresence {
        activities: activities || [],
        status: presenceData.status || 'online',
        afk: presenceData.afk || false,
+       party: presenceData.party || {},
       },
      };
 
