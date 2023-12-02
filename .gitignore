@@ -1,7 +1,7 @@
 node_modules
 .replit
 replit.nix
-image(copy).js
+Backup.js
 .ump
 Example
 .git
