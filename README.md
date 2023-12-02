@@ -25,28 +25,33 @@ Here's a simple example of how to use the RichPresence library:
 ```javascript
 import { RichPresence } from "./RichPresence.js" // or const { RichPresence } = require("RichPresence.js")
 const TOKEN = "your token"; // dont worry, the only place this is going is to discords rpc gateway
-const CLIENT_ID = "your clientId";
+const CLIENT_ID = "your clientId"; // again, this will not be used in any other way than simply connecting to the discord gateway
 
-const rich = new RichPresence({ token: TOKEN, clientId: CLIENT_ID, logs: false, handle: true /*default is false*/ });
+const rich = new RichPresence({ token: TOKEN, clientId: CLIENT_ID, logs: false,/*default is true*/ handle: true /*default is false*/ });
 
 rich.connect().then(() => {
-  setTimeout(() => {
+  setTimeout(() => { // you need to set a timeout else an error will be thrown ( this is mmy fault )
     rich.setPresence({
       activities: [
         {
           name: 'Coding',
-          type: 0,
+          type: 0, // playing
           details: 'Working on a project',
           state: 'In the zone',
           timestamps: {
             start: Date.now() / 1000,
           },
           assets: {
-            large_image: 'image url(',
+            large_image: 'large_image url', // both large and small image have to be a discord attatchment url
             large_text: 'Custom Image Text',
-            small_image: 'your_small_image_key',
+            small_image: 'small_image_url',
             small_text: 'Custom Image Text',
           },
+         /* once i fix buttons itd look something like =>
+         buttons: [
+           { label: "name", url: "redirect-url"}
+         ]
+         */
         },
       ],
     });
@@ -56,12 +61,12 @@ rich.connect().then(() => {
 
 ## Extra
 - if you dont want progress/error logs you can simply put
-  ```JSON
+  ```json
   logs: false
   ```
    into your RichPresence constructor arguments( default is true ), i recommend keeping this enabled because it allows error logging
 - if you want handle updates just put
-  ```JSON
+  ```json
   handle: true
   ```
   into your RichPresence constructor argument( default is false )
