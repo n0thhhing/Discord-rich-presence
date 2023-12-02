@@ -1,0 +1,24 @@
+{
+  "name": "nodejs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+ "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^18.0.6",
+    "axios": "^1.6.2",
+    "erlpack": "^0.1.4",
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^3.2.6",
+    "utf-8-validate": "^6.0.3",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
+  }
+}
