@@ -8,6 +8,7 @@ var fmt = new JSONFormatter(JSONFormatter.PRETTY);
 /**
 * RichPresence class for handling Discord Rich Presence functionality.
 * @class
+* @typedef {Object} Presence
 * @param {Object} options - Configuration options for the RichPresence instance.
 * @param {string} options.token - Discord bot token.
 * @param {string} options.clientId - Discord client ID.
