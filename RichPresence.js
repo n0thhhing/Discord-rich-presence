@@ -13,7 +13,7 @@ var fmt = new JSONFormatter(JSONFormatter.PRETTY);
 * @param {string} options.clientId - Discord client ID.
 * @param {boolean} [options.logs=true] - Enable/disable logging.
 * @param {boolean} [options.handle=false] - Enable/disable handle-specific logging.
-* @see {https://github.com/n0thhhing/Discord-rich-presence} - for more information or issues
+* @see {@link https://github.com/n0thhhing/Discord-rich-presence} - for more information or issues
 */
 class RichPresence {
  constructor({ token, clientId, logs, handle }) {
@@ -56,8 +56,8 @@ class RichPresence {
    this.handleError('Failed to connect:', error);
   }
  }
- /**
- /**
+
+/**
  * Authentication method (no need to authenticate for user tokens).
  * @returns {Promise<void>} - Resolves when authentication is successful.
  */
