@@ -31,7 +31,7 @@ class RichPresence {
   if (this.logs) {
    console.log(
     `${chalk.blue('[LOGS]')} - RichPresence logs are ${chalk.red('Enabled')}.` +
-    `\nTo disable logs, put \n"${chalk.blue(`logs`)}: ${chalk.red('false')}"\ninto the "${chalk.green(
+    `\nTo disable logs, put \n${chalk.blue(`logs`)}: ${chalk.red('false')}${this.handle ? ` and ${chalk.blue("handle")}: ${chalk.red("false")}` : ''}\ninto the "${chalk.green(
      'RichPresence'
     )}" constructor argument`
    );
@@ -44,10 +44,10 @@ class RichPresence {
  }
 
  /**
-  * Establishes a connection to the Discord Gateway.
-  * @async
-  * @returns {Promise<void>} - Resolves when the connection is successfully established.
-  */
+   * Establishes a connection to the Discord Gateway.
+   * @async
+   * @returns {Promise<void>} - Resolves when the connection is successfully established.
+   */
  async connect() {
   try {
    await this.authenticate();
@@ -66,9 +66,9 @@ class RichPresence {
  }
 
  /**
-  * Sets up the WebSocket connection to the Discord Gateway.
-  * @returns {Promise<void>} - Resolves when the WebSocket connection is established.
-  */
+   * Sets up the WebSocket connection to the Discord Gateway.
+   * @returns {Promise<void>} - Resolves when the WebSocket connection is established.
+   */
  setupWebSocket() {
   return new Promise((resolve, reject) => {
    try {
@@ -121,9 +121,9 @@ class RichPresence {
  }
 
  /**
-  * Sends an identification payload to the Discord Gateway.
-  * @returns {Promise<void>} - Resolves when the identification payload is sent successfully.
-  */
+   * Sends an identification payload to the Discord Gateway.
+   * @returns {Promise<void>} - Resolves when the identification payload is sent successfully.
+   */
  sendIdentify() {
   return new Promise((resolve, reject) => {
    try {
@@ -155,9 +155,9 @@ class RichPresence {
  }
 
  /**
-  * Sends a heartbeat payload to the Discord Gateway.
-  * @returns {Promise<void>} - Resolves when the heartbeat payload is sent successfully.
-  */
+   * Sends a heartbeat payload to the Discord Gateway.
+   * @returns {Promise<void>} - Resolves when the heartbeat payload is sent successfully.
+   */
  sendHeartbeat() {
   return new Promise((resolve, reject) => {
    try {
@@ -311,6 +311,70 @@ class RichPresence {
    this.handleError('Error handling resume:', error);
   }
  }
+ /**
+  * Attempts to clean up resources and reconnect.
+  * @returns {Promise<void>} - Resolves when the RECONNECT message is successfully handled.
+  */
+ handleReconnect() {
+  return new Promise((resolve, reject) => {
+   try {
+    if (this.logs) {
+     console.log('Reconnecting...');
+    }
+
+    this.cleanupResources();
+
+    setTimeout(() => {
+     this.connect().then(() => {
+      resolve();
+     }).catch((error) => {
+      reject(error);
+     });
+    }, 5000); // Wait for 5 seconds before attempting to reconnect
+
+   } catch (error) {
+    this.handleError('Error handling reconnect:', error);
+    reject(error);
+   }
+  });
+ }
+
+ /**
+  * Cleans up resources such as closing the WebSocket connection and clearing intervals.
+  * @returns {void}
+  */
+ cleanupResources() {
+  if (this.websocket) {
+   try {
+    if (this.websocket.readyState === WebSocket.OPEN) {
+     this.websocket.close();
+     if (this.logs) {
+      console.log('WebSocket connection closed.');
+     }
+    } else if (this.websocket.readyState === WebSocket.CONNECTING) {
+     if (this.logs) {
+      console.log('WebSocket is still connecting. Waiting for connection to open...');
+     }
+
+     setTimeout(() => {
+      this.cleanupResources();
+     }, 1000);
+     return; // Exit function to avoid further cleanup actions until connection is open
+    }
+   } catch (error) {
+    this.handleError('Error closing WebSocket connection:', error);
+   }
+  }
+
+  clearInterval(this.heartbeatInterval);
+  if (this.logs) {
+   console.log('Heartbeat interval cleared.');
+  }
+
+  if (this.logs) {
+   console.log('Cleanup complete.');
+  }
+ }
 
  handleRequestGuildMembers(data) {
   try {
@@ -381,10 +445,10 @@ class RichPresence {
  }
 
  /**
-  * Handles the HELLO message from the Discord Gateway.
-  * @param {Object} data - Data from the HELLO message.
-  * @returns {Promise<void>} - Resolves when the HELLO message is successfully handled.
-  */
+   * Handles the HELLO message from the Discord Gateway.
+   * @param {Object} data - Data from the HELLO message.
+   * @returns {Promise<void>} - Resolves when the HELLO message is successfully handled.
+   */
  handleHello({ heartbeat_interval }) {
   return new Promise((resolve, reject) => {
    try {
@@ -401,18 +465,19 @@ class RichPresence {
  }
 
  handleDispatch(data) {
-  try {
-   // Handle Dispatch
-  } catch (error) {
-   this.handleError('Error handling dispatch:', error);
+  const { type, data: interactionData } = data;
+  if (type === 1) {
+   // Handle button click
+   const { custom_id } = interactionData;
+   console.log(`Button with custom_id ${custom_id} clicked`);
   }
  }
 
- /**
- * Sets the presence for the Discord user.
- * @param {Object} presenceData - Data for setting the user's presence.
- * @returns {Promise<void>} - Resolves when the presence is successfully set.
- */
+  /**
+   * handles the overall rich presence connections and payloads
+   * param { object } presenceData - initial rich presence data
+   * returns {Promise<void>} 
+  */
  setPresence(presenceData) {
   return new Promise((resolve, reject) => {
    try {
@@ -423,21 +488,27 @@ class RichPresence {
      const activities = presenceData.activities.map((activity) => {
       if (activity.assets) {
        if (activity.assets.large_image) {
-        activity.assets.large_image = this.replaceImageURL(activity.assets.large_image);
+         if (this.isValidUrl(activity.assets.large_image)) {
+            activity.assets.large_image = this.replaceImageURL(activity.assets.large_image);
+         } else {
+           console.log("invalid url, please make sure to add a valid url to your presence data.")
+         }
        }
        if (activity.assets.small_image) {
+         if (this.isValidUrl(activity.assets.large_image)) {
         activity.assets.small_image = this.replaceImageURL(activity.assets.small_image);
+           } else {
+              console.log("invalid url, please make sure to add a valid url to your presence data.")
+          }
        }
       }
-
+      
       if (activity.buttons) {
-       const buttons = activity.buttons
-        ? activity.buttons.map((button) => ({
-         label: button.label,
-         type: '2',
-         url: button.url,
-        }))
-        : undefined;
+       const buttons = activity.buttons.map((button) => ({
+        label: button.label,
+        type: 2,
+        url: this.parseButtonURL(button.url),
+       }));
        return {
         ...activity,
         buttons,
@@ -457,6 +528,7 @@ class RichPresence {
        status: presenceData.status || 'online',
        afk: presenceData.afk || false,
        party: presenceData.party || {},
+       //buttons: presenceData.buttons
       },
      };
 
@@ -484,6 +556,42 @@ class RichPresence {
   });
  }
 
+  /**
+   * Validates a URL string.
+   * @param {string} url - The URL string to validate.
+   * @returns {Promise<boolean>} - Resolves with true if the URL is valid, false otherwise.
+   */
+  async isValidUrl(url) {
+    return new Promise((resolve) => {
+      try {
+        const urlObject = new URL(url);
+
+        // Check for common URL schemes (http, https, ftp)
+        const allowedSchemes = ['http:', 'https:', 'ftp:'];
+        if (!allowedSchemes.includes(urlObject.protocol)) {
+          resolve(false); // Invalid URL scheme
+          return;
+        }
+
+        // Check for a valid hostname (non-empty)
+        if (!urlObject.hostname) {
+          resolve(false); // Empty or invalid hostname
+          return;
+        }
+
+        // Check for a valid path (if present)
+        if (urlObject.pathname && !/^[^<>:"\{\}\[\]\s]+$/i.test(urlObject.pathname)) {
+          resolve(false); // Invalid characters in path
+          return;
+        }
+
+        resolve(true); // URL is valid
+      } catch (error) {
+        resolve(false); // URL is not valid
+      }
+    });
+  }
+
  replaceImageURL(url) {
   return url
    .replace('https://cdn.discordapp.com/', 'mp:')
@@ -493,17 +601,43 @@ class RichPresence {
  }
 
  /**
-  * Handles errors and logs them to the console.
-  * @param {string} message - Error message.
-  * @param {string} error - The actual error.
-  * @returns {Promise<void>} - Resolves after logging the error.
-  */
+   * Handles errors and logs them to the console.
+   * @param {string} message - Error message.
+   * @param {string} error - The actual error.
+   * @returns {Promise<void>} - Resolves after logging the error.
+   */
  handleError(message, error) {
   return new Promise((resolve) => {
    console.error(`${chalk.red('[ERROR]')} - ${message}`, error);
    resolve();
   });
  }
+
+ /**
+  * Parse metadata for the button URL.
+  * @param {string} url - Original button URL.
+  * @returns {Promise<string>} - Resolves with the parsed button URL or rejects with an error.
+  */
+ parseButtonURL(url) {
+  return new Promise((resolve, reject) => {
+   try {
+    const urlObject = new URL(url);
+    const metadataValue = urlObject.searchParams.get('metadata');
+
+    if (metadataValue) {
+     urlObject.searchParams.set('parsedMetadata', metadataValue);
+
+     resolve(urlObject.toString());
+    } else {
+     resolve(url);
+    }
+   } catch (error) {
+    this.handleError('Error parsing button URL:', error);
+    reject(error);
+   }
+  });
+ }
 }
+
 
 export { RichPresence }
