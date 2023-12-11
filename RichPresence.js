@@ -651,6 +651,12 @@ class RichPresence {
     });
   }
 
+  /**
+   * Promisifies the exec function
+   *
+   * @param {string} command - the command to execute
+   * @returs {Promise<void>}
+   */
   async execPromise(command) {
     return new Promise((resolve, reject) => {
       exec(command, (error) => {
@@ -662,7 +668,7 @@ class RichPresence {
       });
     });
   }
- 
+
   /**
    * Validates a URL string.
    * @param {string} url - The URL string to validate.
