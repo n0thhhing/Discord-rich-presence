@@ -662,6 +662,7 @@ class RichPresence {
       });
     });
   }
+ 
   /**
    * Validates a URL string.
    * @param {string} url - The URL string to validate.
