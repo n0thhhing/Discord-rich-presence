@@ -1,0 +1,6 @@
+node_modules
+.ump
+.config
+.local
+.git
+.cache
