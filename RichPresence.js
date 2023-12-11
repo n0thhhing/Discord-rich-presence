@@ -1,6 +1,5 @@
 import WebSocket from "ws";
 import chalk from "chalk";
-import prettier from "prettier";
 import { exec } from "child_process";
 import fs from "fs";
 import { syntaxHighlight } from "./Functions/Highlight.js";
@@ -655,7 +654,7 @@ class RichPresence {
    * Promisifies the exec function
    *
    * @param {string} command - the command to execute
-   * @returs {Promise<void>}
+   * @returns {Promise<void>}
    */
   async execPromise(command) {
     return new Promise((resolve, reject) => {
