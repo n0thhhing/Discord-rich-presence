@@ -1,21 +1,16 @@
 {
   "name": "rich-presence-attempt",
   "version": "1.0.0",
-  "description": "## Overview",
   "type": "module",
-  "main": "Backup.js",
+  "main": "RichPresence.js",
   "scripts": {
     "format": "prettier --write \"**/*.{js,cjs,mjs,jsx,ts,json}\" --ignore-path .prettierignore",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
+  "author": "n0thhhing",
   "license": "ISC",
   "dependencies": {
-    "axios": "^1.6.2",
-    "chalk": "^5.3.0",
-    "child_process": "^1.0.2",
-    "prettier": "^3.1.1",
     "ws": "^8.15.0"
   }
 }

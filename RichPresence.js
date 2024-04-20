@@ -1,9 +1,5 @@
 import WebSocket from "ws";
-import chalk from "chalk";
-import { exec } from "child_process";
-import fs from "fs";
-import { inspect } from 'util'
-import { syntaxHighlight } from "./Functions/Highlight.js";
+import { inspect } from "util";
 
 /**
  * RichPresence class for handling Discord Rich Presence functionality.
@@ -23,30 +19,24 @@ class RichPresence {
     this.websocket = null;
     this.heartbeatInterval = null;
     this.connected = false;
-    this.logs = logs !== undefined ? logs : true;
+    this.verbose = logs !== undefined ? logs : true;
     if (handle) {
       this.handle = handle;
     } else {
       this.handle = false;
     }
-    if (this.logs) {
+    if (this.verbose) {
       console.log(
-        `${chalk.blue("[LOGS]")} - RichPresence logs are ${chalk.red(
-          "Enabled",
-        )}.` +
-          `\nTo disable logs, put \n${chalk.blue(`logs`)}: ${chalk.red(
-            "false",
-          )}${
+        `\x1b[34m[LOGS]\x1b[0m - RichPresence logs are \x1b[31mEnabled\x1b[0m.` +
+          `\nTo disable logs, put \n\x1b[34mlogs\x1b[0m: \x1b[31mfalse\x1b[0m${
             this.handle
-              ? ` and ${chalk.blue("handle")}: ${chalk.red("false")}`
+              ? ` and \x1b[34mhandle\x1b[0m: \x1b[31mfalse\x1b[0m`
               : ""
-          }\ninto the "${chalk.green("RichPresence")}" constructor argument`,
+          }\ninto the \x1b[32mRichPresence\x1b[0m constructor argument`,
       );
       if (this.handle) {
         console.log(
-          `${chalk.blue(
-            "[LOGS]",
-          )} - RichPresence handle logs are also ${chalk.red("Enabled")}.`,
+          `\x1b[34m[LOGS]\x1b[0m - RichPresence handle logs are also \x1b[31mEnabled"\x1b[0m.`,
         );
       }
       console.log("");
@@ -60,7 +50,6 @@ class RichPresence {
    */
   async connect() {
     try {
-      await this.authenticate();
       this.setupWebSocket();
     } catch (error) {
       this.handleError("Failed to connect:", error);
@@ -87,8 +76,8 @@ class RichPresence {
         );
 
         this.websocket.on("open", () => {
-          if (this.logs) {
-            console.log(`WebSocket ${chalk.green("connected")}`);
+          if (this.verbose) {
+            console.log(`WebSocket \x1b[32mconnected\x1b[0m`);
           }
           this.connected = true;
           this.startHeartbeat();
@@ -106,7 +95,7 @@ class RichPresence {
         });
 
         this.websocket.on("close", () => {
-          console.log(`WebSocket ${chalk.red("closed")}`);
+          console.log(`WebSocket \x1b[31mclosed\x1b[0m`);
           clearInterval(this.heartbeatInterval);
           this.connected = false;
         });
@@ -145,8 +134,8 @@ class RichPresence {
             token: this.token,
             properties: {
               $os: "linux",
-              $browser: "my_library",
-              $device: "my_library",
+              $browser: "Discord_rich",
+              $device: "Discord_rich",
             },
             intents: 513,
           },
@@ -313,7 +302,7 @@ class RichPresence {
           },
         };
         this.websocket.send(JSON.stringify(payload));
-        if (this.logs) {
+        if (this.verbose) {
           console.log("Resuming session...");
         }
       } else {
@@ -330,7 +319,7 @@ class RichPresence {
   handleReconnect() {
     return new Promise((resolve, reject) => {
       try {
-        if (this.logs) {
+        if (this.verbose) {
           console.log("Reconnecting...");
         }
 
@@ -361,11 +350,11 @@ class RichPresence {
       try {
         if (this.websocket.readyState === WebSocket.OPEN) {
           this.websocket.close();
-          if (this.logs) {
+          if (this.verbose) {
             console.log("WebSocket connection closed.");
           }
         } else if (this.websocket.readyState === WebSocket.CONNECTING) {
-          if (this.logs) {
+          if (this.verbose) {
             console.log(
               "WebSocket is still connecting. Waiting for connection to open...",
             );
@@ -382,18 +371,18 @@ class RichPresence {
     }
 
     clearInterval(this.heartbeatInterval);
-    if (this.logs) {
+    if (this.verbose) {
       console.log("Heartbeat interval cleared.");
     }
 
-    if (this.logs) {
+    if (this.verbose) {
       console.log("Cleanup complete.");
     }
   }
 
   handleRequestGuildMembers(data) {
     try {
-      if (this.logs) {
+      if (this.verbose) {
         console.log("Requesting guild members with data:", data);
       }
 
@@ -430,7 +419,7 @@ class RichPresence {
 
   handleChannelUpdate(data) {
     try {
-      if (this.logs) {
+      if (this.verbose) {
         console.log("Channel updated with data:", data);
       }
     } catch (error) {
@@ -440,7 +429,7 @@ class RichPresence {
 
   handleGuildMembersChunk(data) {
     try {
-      if (this.logs) {
+      if (this.verbose) {
         console.log("Received guild members chunk with data:", data);
       }
     } catch (error) {
@@ -450,7 +439,7 @@ class RichPresence {
 
   handleGuildMemberUpdate(data) {
     try {
-      if (this.logs) {
+      if (this.verbose) {
         console.log("Guild member updated with data:", data);
       }
     } catch (error) {
@@ -483,7 +472,8 @@ class RichPresence {
     if (type === 1) {
       // Handle button click
       const { custom_id } = interactionData;
-      if (this.logs) console.log(`Button with custom_id ${custom_id} clicked`);
+      if (this.verbose)
+        console.log(`Button with custom_id ${custom_id} clicked`);
     }
   }
 
@@ -496,8 +486,8 @@ class RichPresence {
   updatePresence(presenceData) {
     return new Promise((resolve, reject) => {
       try {
-        if (this.logs) {
-          console.log(chalk.blue("LOGS - ") + "Updating presence...");
+        if (this.verbose) {
+          console.log("\x1b[34m[LOGS]\x1b[0m - Updating presence...");
         }
 
         if (this.connected && this.websocket.readyState === WebSocket.OPEN) {
@@ -512,21 +502,8 @@ class RichPresence {
             },
           };
 
-          if (this.logs) {
-            const code = JSON.stringify(payload.d);
-            fs.writeFileSync("code.json", code);
-            exec("prettier -w code.json", () => {
-              const outcode = fs.readFileSync("code.json", "utf-8");
-              console.log(syntaxHighlight(outcode));
-              fs.unlink("code.json", (error) => {
-                if (error) {
-                  this.handleError("Error updating presence:", error);
-                  reject(error);
-                } else {
-                  resolve();
-                }
-              });
-            });
+          if (this.verbose) {
+            console.log(inspect(payload.d, { depth: null, colors: true }));
           }
 
           this.websocket.send(JSON.stringify(payload), (error) => {
@@ -556,7 +533,7 @@ class RichPresence {
   setPresence(presenceData) {
     return new Promise((resolve, reject) => {
       try {
-        if (this.logs) {
+        if (this.verbose) {
           console.log("WebSocket state:", this.websocket.readyState);
         }
         if (this.connected && this.websocket.readyState === WebSocket.OPEN) {
@@ -615,21 +592,8 @@ class RichPresence {
             },
           };
 
-          if (this.logs) {
-            const code = JSON.stringify(payload.d);
-            fs.writeFileSync("code.json", code);
-            exec("prettier -w code.json", () => {
-              const outcode = fs.readFileSync("code.json", "utf-8");
-              console.log(syntaxHighlight(outcode));
-              fs.unlink("code.json", (error) => {
-                if (error) {
-                  this.handleError("Error updating presence:", error);
-                  reject(error);
-                } else {
-                  resolve();
-                }
-              });
-            });
+          if (this.verbose) {
+            console.log(inspect(payload.d, { depth: null, colors: true }));
           }
 
           this.websocket.send(JSON.stringify(payload), (error) => {
@@ -648,24 +612,6 @@ class RichPresence {
         this.handleError("Error setting presence:", error);
         reject(error);
       }
-    });
-  }
-
-  /**
-   * Promisifies the exec function
-   *
-   * @param {string} command - the command to execute
-   * @returns {Promise<void>}
-   */
-  async execPromise(command) {
-    return new Promise((resolve, reject) => {
-      exec(command, (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
     });
   }
 
@@ -724,7 +670,7 @@ class RichPresence {
    */
   handleError(message, error) {
     return new Promise((resolve) => {
-      console.error(`${chalk.red("[ERROR]")} - ${message}`, error);
+      console.error(`\x1b[31m[ERROR]\x1b[0m - ${message}`, error);
       resolve();
     });
   }
