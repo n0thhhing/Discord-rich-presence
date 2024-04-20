@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import chalk from "chalk";
 import { exec } from "child_process";
 import fs from "fs";
+import { inspect } from 'util'
 import { syntaxHighlight } from "./Functions/Highlight.js";
 
 /**
