@@ -6,8 +6,8 @@ import { inspect } from "util";
  * @class
  * @typedef {void} Presence
  * @param {Object} options - Configuration options for the RichPresence instance.
- * @param {string} options.token - Discord bot token.
- * @param {string} options.clientId - Discord client ID.
+ * @param {string} options.token - Discord bot token or user token.
+ * @param {string} options.clientId - Discord client ID / Application ID.
  * @param {boolean} [options.logs=true] - Enable/disable logging.
  * @param {boolean} [options.handle=false] - Enable/disable handle-specific logging.
  * @see {@link https://github.com/n0thhhing/Discord-rich-presence} - for more information or issues
@@ -20,11 +20,11 @@ class RichPresence {
     this.heartbeatInterval = null;
     this.connected = false;
     this.verbose = logs !== undefined ? logs : true;
-    if (handle) {
-      this.handle = handle;
-    } else {
-      this.handle = false;
-    }
+    this.handle = Boolean(handle);
+    this.seq = null;
+    this.sessionId = null;
+    this.pendingPresenceCallback = null;
+
     if (this.verbose) {
       console.log(
         `\x1b[34m[LOGS]\x1b[0m - RichPresence logs are \x1b[31mEnabled\x1b[0m.` +
@@ -36,7 +36,7 @@ class RichPresence {
       );
       if (this.handle) {
         console.log(
-          `\x1b[34m[LOGS]\x1b[0m - RichPresence handle logs are also \x1b[31mEnabled"\x1b[0m.`,
+          `\x1b[34m[LOGS]\x1b[0m - RichPresence handle logs are also \x1b[31mEnabled\x1b[0m.`,
         );
       }
       console.log("");
@@ -50,9 +50,10 @@ class RichPresence {
    */
   async connect() {
     try {
-      this.setupWebSocket();
+      await this.setupWebSocket();
     } catch (error) {
       this.handleError("Failed to connect:", error);
+      throw error;
     }
   }
 
@@ -66,43 +67,99 @@ class RichPresence {
 
   /**
    * Sets up the WebSocket connection to the Discord Gateway.
-   * @returns {Promise<void>} - Resolves when the WebSocket connection is established.
+   * @returns {Promise<void>} - Resolves when the WebSocket connection is established and ready.
    */
   setupWebSocket() {
     return new Promise((resolve, reject) => {
       try {
         this.websocket = new WebSocket(
-          "wss://gateway.discord.gg/?v=9&encoding=json",
+          "wss://gateway.discord.gg/?v=10&encoding=json",
         );
+
+        let isResolved = false;
+        const completeConnection = () => {
+          if (!isResolved) {
+            isResolved = true;
+            if (this.pendingPresenceCallback) {
+              const cb = this.pendingPresenceCallback;
+              this.pendingPresenceCallback = null;
+              cb();
+            }
+            resolve();
+          }
+        };
 
         this.websocket.on("open", () => {
           if (this.verbose) {
             console.log(`WebSocket \x1b[32mconnected\x1b[0m`);
           }
           this.connected = true;
-          this.startHeartbeat();
-          this.sendIdentify();
-          resolve();
+
+          // Fallback identify if Hello is delayed
+          setTimeout(() => {
+            if (this.connected && !this.heartbeatInterval) {
+              this.startHeartbeat(41250);
+              this.sendIdentify();
+            }
+          }, 2000);
+
+          // Fallback resolve in case READY is delayed
+          setTimeout(() => {
+            if (this.connected) {
+              completeConnection();
+            }
+          }, 3000);
         });
 
         this.websocket.on("message", (data) => {
           try {
             const parsedData = JSON.parse(data);
+
+            // Resolve when session is confirmed ready or resumed
+            if (
+              parsedData.op === 0 &&
+              (parsedData.t === "READY" || parsedData.t === "RESUMED")
+            ) {
+              completeConnection();
+            }
+
             this.handleMessage(parsedData);
           } catch (error) {
             this.handleError("Error parsing WebSocket message:", error);
           }
         });
 
-        this.websocket.on("close", () => {
-          console.log(`WebSocket \x1b[31mclosed\x1b[0m`);
+        this.websocket.on("close", (code, reason) => {
+          const reasonStr = reason ? reason.toString() : "";
+          if (this.verbose) {
+            console.log(
+              `WebSocket \x1b[31mclosed\x1b[0m${code ? ` (code: ${code}${reasonStr ? `, reason: ${reasonStr}` : ""})` : ""}`,
+            );
+          }
           clearInterval(this.heartbeatInterval);
+          this.heartbeatInterval = null;
           this.connected = false;
+
+          if (code === 4004) {
+            this.handleError("Authentication failed: Invalid Discord token.", code);
+          }
+
+          if (!isResolved) {
+            isResolved = true;
+            reject(
+              new Error(
+                `WebSocket closed before connection was established (code: ${code})`,
+              ),
+            );
+          }
         });
 
         this.websocket.on("error", (error) => {
           this.handleError("WebSocket error:", error);
-          reject(error);
+          if (!isResolved) {
+            isResolved = true;
+            reject(error);
+          }
         });
       } catch (error) {
         this.handleError("WebSocket setup error:", error);
@@ -113,12 +170,14 @@ class RichPresence {
 
   /**
    * Starts the heartbeat interval.
+   * @param {number} [interval=41250] - Interval in milliseconds.
    * @returns {void}
    */
-  startHeartbeat() {
+  startHeartbeat(interval = 41250) {
+    clearInterval(this.heartbeatInterval);
     this.heartbeatInterval = setInterval(() => {
       this.sendHeartbeat();
-    }, 5000);
+    }, interval);
   }
 
   /**
@@ -128,18 +187,30 @@ class RichPresence {
   sendIdentify() {
     return new Promise((resolve, reject) => {
       try {
+        if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+          return resolve();
+        }
+
+        const osName =
+          process.platform === "win32"
+            ? "windows"
+            : process.platform === "darwin"
+              ? "macos"
+              : "linux";
+
         const payload = {
           op: 2,
           d: {
             token: this.token,
             properties: {
-              $os: "linux",
+              $os: osName,
               $browser: "Discord_rich",
               $device: "Discord_rich",
             },
             intents: 513,
           },
         };
+
         this.websocket.send(JSON.stringify(payload), (error) => {
           if (error) {
             this.handleError("Error sending identify payload:", error);
@@ -162,10 +233,15 @@ class RichPresence {
   sendHeartbeat() {
     return new Promise((resolve, reject) => {
       try {
+        if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+          return resolve();
+        }
+
         const payload = {
           op: 1,
-          d: null,
+          d: this.seq ?? null,
         };
+
         this.websocket.send(JSON.stringify(payload), (error) => {
           if (error) {
             this.handleError("Error sending heartbeat payload:", error);
@@ -189,7 +265,11 @@ class RichPresence {
   handleMessage(message) {
     return new Promise((resolve, reject) => {
       try {
-        const { op, d } = message;
+        const { op, d, s, t } = message;
+
+        if (s !== null && s !== undefined) {
+          this.seq = s;
+        }
 
         switch (op) {
           case 10: // Hello
@@ -200,59 +280,45 @@ class RichPresence {
               console.log("Heartbeat acknowledged");
             }
             break;
-          case 1: // Heartbeat
+          case 1: // Heartbeat request from server
             if (this.handle) {
-              console.log("Received Heartbeat");
+              console.log("Received Heartbeat request from server");
             }
             this.handleHeartbeat();
             break;
           case 0: // Dispatch
             if (this.handle) {
-              console.log("Received Dispatch");
+              console.log(`Received Dispatch: ${t}`);
             }
-            this.handleDispatch(d);
+            if (t === "READY") {
+              this.sessionId = d.session_id;
+              if (this.verbose && d.user) {
+                console.log(`Connected as \x1b[32m${d.user.username}\x1b[0m`);
+              }
+            } else if (t === "RESUMED") {
+              if (this.verbose) {
+                console.log("Session resumed successfully");
+              }
+            }
+            this.handleDispatch(d, t);
             break;
           case 9: // Invalid Session
             if (this.handle) {
               console.log("Invalid Session");
             }
-            this.handleInvalidSession();
+            this.handleInvalidSession(d);
             break;
           case 7: // Reconnect
             if (this.handle) {
-              console.log("Reconnect");
+              console.log("Reconnect requested by server");
             }
             this.handleReconnect();
             break;
           case 2: // Identify Connection
-            if (this.handle) {
-              console.log("Identify Connection");
-            }
-            this.handleIdentifyConnection();
-            break;
           case 3: // Presence Update
-            if (this.handle) {
-              console.log("Presence Update");
-            }
-            this.handlePresenceUpdate(d);
-            break;
           case 4: // Voice State Update
-            if (this.handle) {
-              console.log("Voice State Update");
-            }
-            this.handleVoiceStateUpdate(d);
-            break;
           case 5: // Resume
-            if (this.handle) {
-              console.log("Resume");
-            }
-            this.handleResume(d);
-            break;
-          case 6: // Reconnect
-            if (this.handle) {
-              console.log("Reconnect");
-            }
-            this.handleReconnect();
+          case 6: // Reconnect request
             break;
           case 8: // Request Guild Members
             if (this.handle) {
@@ -279,10 +345,12 @@ class RichPresence {
             this.handleGuildMemberUpdate(d);
             break;
           default:
-            this.handleError(`Unknown OP code: ${op}`);
-            reject(`Unknown OP code: ${op}`);
+            if (this.handle) {
+              console.log(`Received unhandled OP code: ${op}`);
+            }
             break;
         }
+        resolve();
       } catch (error) {
         this.handleError("Error handling message:", error);
         reject(error);
@@ -290,15 +358,49 @@ class RichPresence {
     });
   }
 
-  handleResume(data) {
+  /**
+   * Handles server-requested heartbeat (Opcode 1).
+   */
+  handleHeartbeat() {
+    this.sendHeartbeat();
+  }
+
+  /**
+   * Handles invalid session (Opcode 9).
+   * @param {boolean} resumable - Whether the session can be resumed.
+   */
+  handleInvalidSession(resumable) {
+    if (this.verbose) {
+      console.log(
+        "Invalid session.",
+        resumable ? "Attempting to resume..." : "Re-identifying...",
+      );
+    }
+    if (resumable && this.sessionId) {
+      setTimeout(() => {
+        this.handleResume();
+      }, 1000);
+    } else {
+      this.sessionId = null;
+      this.seq = null;
+      setTimeout(() => {
+        this.sendIdentify();
+      }, 1000);
+    }
+  }
+
+  /**
+   * Resumes an existing Discord Gateway session (Opcode 6).
+   */
+  handleResume() {
     try {
-      if (this.websocket.readyState === WebSocket.OPEN) {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
         const payload = {
           op: 6,
           d: {
             token: this.token,
-            session_id: data.session_id,
-            seq: data.seq,
+            session_id: this.sessionId,
+            seq: this.seq,
           },
         };
         this.websocket.send(JSON.stringify(payload));
@@ -312,9 +414,10 @@ class RichPresence {
       this.handleError("Error handling resume:", error);
     }
   }
+
   /**
    * Attempts to clean up resources and reconnect.
-   * @returns {Promise<void>} - Resolves when the RECONNECT message is successfully handled.
+   * @returns {Promise<void>} - Resolves when reconnect is successfully initiated.
    */
   handleReconnect() {
     return new Promise((resolve, reject) => {
@@ -363,7 +466,7 @@ class RichPresence {
           setTimeout(() => {
             this.cleanupResources();
           }, 1000);
-          return; // Exit function to avoid further cleanup actions until connection is open
+          return;
         }
       } catch (error) {
         this.handleError("Error closing WebSocket connection:", error);
@@ -371,13 +474,19 @@ class RichPresence {
     }
 
     clearInterval(this.heartbeatInterval);
+    this.heartbeatInterval = null;
     if (this.verbose) {
       console.log("Heartbeat interval cleared.");
-    }
-
-    if (this.verbose) {
       console.log("Cleanup complete.");
     }
+  }
+
+  /**
+   * Disconnects the rich presence client and cleans up resources.
+   */
+  disconnect() {
+    this.cleanupResources();
+    this.connected = false;
   }
 
   handleRequestGuildMembers(data) {
@@ -405,7 +514,7 @@ class RichPresence {
         },
       };
 
-      if (this.websocket.readyState === WebSocket.OPEN) {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
         this.websocket.send(JSON.stringify(payload));
       } else {
         this.handleError(
@@ -455,10 +564,14 @@ class RichPresence {
   handleHello({ heartbeat_interval }) {
     return new Promise((resolve, reject) => {
       try {
-        clearInterval(this.heartbeatInterval);
-        this.heartbeatInterval = setInterval(() => {
-          this.sendHeartbeat();
-        }, heartbeat_interval);
+        this.startHeartbeat(heartbeat_interval);
+        this.sendHeartbeat();
+
+        if (this.sessionId && this.seq !== null) {
+          this.handleResume();
+        } else {
+          this.sendIdentify();
+        }
         resolve();
       } catch (error) {
         this.handleError("Error handling hello:", error);
@@ -467,133 +580,112 @@ class RichPresence {
     });
   }
 
-  handleDispatch(data) {
-    const { type, data: interactionData } = data;
-    if (type === 1) {
+  handleDispatch(data, eventName) {
+    if (data && data.type === 1 && data.data) {
       // Handle button click
-      const { custom_id } = interactionData;
-      if (this.verbose)
+      const { custom_id } = data.data;
+      if (this.verbose) {
         console.log(`Button with custom_id ${custom_id} clicked`);
+      }
     }
   }
 
   /**
-   * Updates the presence on Discord.
+   * Updates the presence on Discord (alias for setPresence).
    *
    * @param {Object} presenceData - Updated presence data.
    * @returns {Promise<void>} - Resolves when the presence update is sent successfully.
    */
   updatePresence(presenceData) {
-    return new Promise((resolve, reject) => {
-      try {
-        if (this.verbose) {
-          console.log("\x1b[34m[LOGS]\x1b[0m - Updating presence...");
-        }
-
-        if (this.connected && this.websocket.readyState === WebSocket.OPEN) {
-          const payload = {
-            op: 3,
-            d: {
-              since: presenceData.since || null,
-              activities: presenceData.activities || [],
-              status: presenceData.status || "online",
-              afk: presenceData.afk || false,
-              party: presenceData.party || {},
-            },
-          };
-
-          if (this.verbose) {
-            console.log(inspect(payload.d, { depth: null, colors: true }));
-          }
-
-          this.websocket.send(JSON.stringify(payload), (error) => {
-            if (error) {
-              this.handleError("Error updating presence:", error);
-              reject(error);
-            } else {
-              resolve();
-            }
-          });
-        } else {
-          this.handleError("WebSocket is not open. Unable to update presence.");
-          reject("WebSocket is not open. Unable to update presence.");
-        }
-      } catch (error) {
-        this.handleError("Error updating presence:", error);
-        reject(error);
-      }
-    });
+    return this.setPresence(presenceData);
   }
 
   /**
-   * handles the overall rich presence connections and payloads
-   * param { object } presenceData - initial rich presence data
-   * returns {Promise<void>}
+   * Handles the overall rich presence connections and payloads.
+   * @param {Object} presenceData - Rich presence data.
+   * @returns {Promise<void>}
    */
   setPresence(presenceData) {
     return new Promise((resolve, reject) => {
       try {
-        if (this.verbose) {
-          console.log("WebSocket state:", this.websocket.readyState);
+        if (!presenceData) {
+          return reject(new Error("No presence data provided."));
         }
-        if (this.connected && this.websocket.readyState === WebSocket.OPEN) {
-          const activities = presenceData.activities.map((activity) => {
-            if (activity.assets) {
-              if (activity.assets.large_image) {
-                if (this.isValidUrl(activity.assets.large_image)) {
-                  activity.assets.large_image = this.replaceImageURL(
-                    activity.assets.large_image,
-                  );
-                } else {
-                  console.log(
-                    "invalid url, please make sure to add a valid url to your presence data.",
-                  );
-                }
-              }
-              if (activity.assets.small_image) {
-                if (this.isValidUrl(activity.assets.large_image)) {
-                  activity.assets.small_image = this.replaceImageURL(
-                    activity.assets.small_image,
-                  );
-                } else {
-                  console.log(
-                    "invalid url, please make sure to add a valid url to your presence data.",
-                  );
+
+        const activities = (presenceData.activities || []).map((activity) => {
+          const formattedActivity = { ...activity };
+
+          if (activity.assets) {
+            const assets = { ...activity.assets };
+
+            if (assets.large_image) {
+              assets.large_image = this.formatAsset(assets.large_image);
+            }
+            if (assets.small_image) {
+              assets.small_image = this.formatAsset(assets.small_image);
+            }
+
+            formattedActivity.assets = assets;
+          }
+
+          if (
+            activity.buttons &&
+            Array.isArray(activity.buttons) &&
+            activity.buttons.length > 0
+          ) {
+            const buttonLabels = [];
+            const buttonUrls = [];
+
+            for (const button of activity.buttons.slice(0, 2)) {
+              if (typeof button === "string") {
+                buttonLabels.push(button);
+              } else if (button && typeof button === "object") {
+                buttonLabels.push(button.label || "");
+                if (button.url) {
+                  buttonUrls.push(this.parseButtonURL(button.url));
                 }
               }
             }
 
-            if (activity.buttons) {
-              const buttons = activity.buttons.map((button) => ({
-                label: button.label,
-                type: 2,
-                url: this.parseButtonURL(button.url),
-              }));
-              return {
-                ...activity,
-                buttons,
-              };
-            } else {
-              return {
-                ...activity,
+            formattedActivity.buttons = buttonLabels;
+            if (buttonUrls.length > 0) {
+              formattedActivity.metadata = {
+                ...(activity.metadata || {}),
+                button_urls: buttonUrls,
               };
             }
-          });
+          }
 
-          const payload = {
-            op: 3,
-            d: {
-              since: presenceData.since || null,
-              activities: activities || [],
-              status: presenceData.status || "online",
-              afk: presenceData.afk || false,
-              party: presenceData.party || {},
-              //buttons: presenceData.buttons
-            },
-          };
+          if (!formattedActivity.application_id && this.clientId) {
+            formattedActivity.application_id = this.clientId;
+          }
 
+          return formattedActivity;
+        });
+
+        const payload = {
+          op: 3,
+          d: {
+            since: presenceData.since ?? null,
+            activities: activities,
+            status: presenceData.status || "online",
+            afk: Boolean(presenceData.afk),
+            party: presenceData.party || {},
+          },
+        };
+
+        const executeSend = () => {
           if (this.verbose) {
+            console.log("\x1b[34m[LOGS]\x1b[0m - Updating presence...");
             console.log(inspect(payload.d, { depth: null, colors: true }));
+          }
+
+          if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+            const error = new Error(
+              "WebSocket is not open. Unable to set presence.",
+            );
+            this.handleError(error.message, error);
+            return reject(error);
           }
 
           this.websocket.send(JSON.stringify(payload), (error) => {
@@ -604,9 +696,30 @@ class RichPresence {
               resolve();
             }
           });
+        };
+
+        if (
+          this.connected &&
+          this.websocket &&
+          this.websocket.readyState === WebSocket.OPEN
+        ) {
+          executeSend();
+        } else if (
+          this.websocket &&
+          this.websocket.readyState === WebSocket.CONNECTING
+        ) {
+          if (this.verbose) {
+            console.log(
+              "WebSocket is still connecting. Presence will be set once connected.",
+            );
+          }
+          this.pendingPresenceCallback = executeSend;
         } else {
-          this.handleError("WebSocket is not open. Unable to set presence.");
-          reject("WebSocket is not open. Unable to set presence.");
+          const error = new Error(
+            "WebSocket is not open. Unable to set presence.",
+          );
+          this.handleError(error.message, error);
+          reject(error);
         }
       } catch (error) {
         this.handleError("Error setting presence:", error);
@@ -616,61 +729,95 @@ class RichPresence {
   }
 
   /**
-   * Validates a URL string.
-   * @param {string} url - The URL string to validate.
-   * @returns {Promise<boolean>} - Resolves with true if the URL is valid, false otherwise.
+   * Formats an image asset string for Discord Rich Presence.
+   * Converts Discord attachment/media URLs to mp: format,
+   * while preserving asset keys, external URLs, and already-proxied mp: strings.
+   * @param {string} asset - Image URL, asset key, or mp: string.
+   * @returns {string} - Formatted asset string.
    */
-  async isValidUrl(url) {
-    return new Promise((resolve) => {
-      try {
-        const urlObject = new URL(url);
+  formatAsset(asset) {
+    if (typeof asset !== "string") return asset;
+    const trimmed = asset.trim();
 
-        // Check for common URL schemes (http, https, ftp)
-        const allowedSchemes = ["http:", "https:", "ftp:"];
-        if (!allowedSchemes.includes(urlObject.protocol)) {
-          resolve(false); // Invalid URL scheme
-          return;
-        }
+    // Already in media proxy or special scheme format
+    if (
+      trimmed.startsWith("mp:") ||
+      trimmed.startsWith("spotify:") ||
+      trimmed.startsWith("youtube:")
+    ) {
+      return trimmed;
+    }
 
-        // Check for a valid hostname (non-empty)
-        if (!urlObject.hostname) {
-          resolve(false); // Empty or invalid hostname
-          return;
-        }
+    // Convert Discord CDN / media URLs to mp: format
+    if (this.isDiscordImageUrl(trimmed)) {
+      return this.replaceImageURL(trimmed);
+    }
 
-        // Check for a valid path (if present)
-        if (
-          urlObject.pathname &&
-          !/^[^<>:"\{\}\[\]\s]+$/i.test(urlObject.pathname)
-        ) {
-          resolve(false); // Invalid characters in path
-          return;
-        }
+    // External image URL (e.g. Imgur, personal host, Tenor)
+    if (this.isValidUrl(trimmed)) {
+      return trimmed;
+    }
 
-        resolve(true); // URL is valid
-      } catch (error) {
-        resolve(false); // URL is not valid
-      }
-    });
+    // Discord Developer Portal asset key
+    return trimmed;
   }
 
+  /**
+   * Checks if a URL is a Discord CDN or Media proxy URL.
+   * @param {string} url - URL to check.
+   * @returns {boolean}
+   */
+  isDiscordImageUrl(url) {
+    if (typeof url !== "string") return false;
+    return /^https?:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(
+      url,
+    );
+  }
+
+  /**
+   * Replaces Discord CDN or Media URLs with the mp: prefix required by Rich Presence.
+   * @param {string} url - Discord CDN or Media URL.
+   * @returns {string} - mp: prefixed asset string.
+   */
   replaceImageURL(url) {
+    if (typeof url !== "string") return url;
     return url
-      .replace("https://cdn.discordapp.com/", "mp:")
-      .replace("http://cdn.discordapp.com/", "mp:")
-      .replace("https://media.discordapp.net/", "mp:")
-      .replace("http://media.discordapp.net/", "mp:");
+      .replace(/^https?:\/\/cdn\.discordapp\.com\//i, "mp:")
+      .replace(/^https?:\/\/media\.discordapp\.net\//i, "mp:");
+  }
+
+  /**
+   * Validates a URL string.
+   * @param {string} url - The URL string to validate.
+   * @returns {boolean} - Returns true if the URL is valid, false otherwise.
+   */
+  isValidUrl(url) {
+    if (typeof url !== "string") return false;
+    try {
+      const urlObject = new URL(url);
+      const allowedSchemes = ["http:", "https:", "ftp:"];
+      if (!allowedSchemes.includes(urlObject.protocol)) {
+        return false;
+      }
+      return Boolean(urlObject.hostname);
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Handles errors and logs them to the console.
    * @param {string} message - Error message.
-   * @param {string} error - The actual error.
+   * @param {string|Error} [error] - The actual error.
    * @returns {Promise<void>} - Resolves after logging the error.
    */
   handleError(message, error) {
     return new Promise((resolve) => {
-      console.error(`\x1b[31m[ERROR]\x1b[0m - ${message}`, error);
+      if (error) {
+        console.error(`\x1b[31m[ERROR]\x1b[0m - ${message}`, error);
+      } else {
+        console.error(`\x1b[31m[ERROR]\x1b[0m - ${message}`);
+      }
       resolve();
     });
   }
@@ -678,27 +825,24 @@ class RichPresence {
   /**
    * Parse metadata for the button URL.
    * @param {string} url - Original button URL.
-   * @returns {Promise<string>} - Resolves with the parsed button URL or rejects with an error.
+   * @returns {string} - The parsed button URL.
    */
   parseButtonURL(url) {
-    return new Promise((resolve, reject) => {
-      try {
-        const urlObject = new URL(url);
-        const metadataValue = urlObject.searchParams.get("metadata");
+    if (typeof url !== "string") return url;
+    try {
+      const urlObject = new URL(url);
+      const metadataValue = urlObject.searchParams.get("metadata");
 
-        if (metadataValue) {
-          urlObject.searchParams.set("parsedMetadata", metadataValue);
-
-          resolve(urlObject.toString());
-        } else {
-          resolve(url);
-        }
-      } catch (error) {
-        this.handleError("Error parsing button URL:", error);
-        reject(error);
+      if (metadataValue) {
+        urlObject.searchParams.set("parsedMetadata", metadataValue);
+        return urlObject.toString();
       }
-    });
+      return url;
+    } catch {
+      return url;
+    }
   }
 }
 
 export { RichPresence };
+export default RichPresence;

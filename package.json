@@ -1,16 +1,22 @@
 {
   "name": "rich-presence-attempt",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "Discord Rich Presence library for Node.js over Discord Gateway",
   "type": "module",
   "main": "RichPresence.js",
   "scripts": {
     "format": "prettier --write \"**/*.{js,cjs,mjs,jsx,ts,json}\" --ignore-path .prettierignore",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "discord",
+    "rich-presence",
+    "rpc",
+    "gateway"
+  ],
   "author": "n0thhhing",
   "license": "ISC",
   "dependencies": {
-    "ws": "^8.15.0"
+    "ws": "^8.22.0"
   }
 }
